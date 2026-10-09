@@ -75,22 +75,17 @@ class TRP_Extra_Languages{
 
 	public function enqueue_sortable_language_script( ){
 
-		$current_user=wp_get_current_user();
-		$user_role = $current_user->roles;
-		$whitelabel = !in_array( strtolower('administrator'), $user_role );
+		$current_user = wp_get_current_user();
+		$user_id      = $current_user->ID;
 
-		/*
-		if( $whitelabel ) add_filter( 'trp_settings_tabs', 'bv_remove_translatepress_tabs' );
-		function bv_remove_translatepress_tabs($tabs){
-			$tabs = array($tabs[0]);
-			return $tabs;
-		}
-		*/
+		// Was in_array( 'administrator', $current_user->roles ). On multisite a
+		// super admin usually holds no role on an individual subsite, so roles
+		// is empty, the test failed, and the network administrator got the
+		// white-labelled UI. manage_options covers subsite administrators and
+		// super admins alike, and still excludes editors and below.
+		$whitelabel = ! bv_trp_user_sees_full_admin();
 
-		//$user_id=get_current_user_id();
-		$user_id=$current_user->ID;
-		$language_limit=bv_get_required_level_status($user_id,  get_user_meta( $user_id,'private_plan', true))?BV_TRANSLATION_LIMIT_PREMIUM:BV_TRANSLATION_LIMIT_BASIC;
-		$language_limit=get_option('bv_translation_limit',null)??$language_limit;
+		$language_limit = bv_trp_language_limit( $user_id );
 		//error_log(print_r('language limit: '.$language_limit,true));
 		wp_enqueue_script( 'trp-sortable-languages', TRP_EL_PLUGIN_URL . 'assets/js/trp-sortable-languages.js', array( 'jquery-ui-sortable'), TRP_PLUGIN_VERSION );
 		if ( ! $this->trp_languages ){
