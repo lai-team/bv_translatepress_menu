@@ -45,51 +45,56 @@ $language_limit = get_option( 'bv_translation_limit', null ) ?? $language_limit;
 
 `bv_translation_limit`, if set, overrides the per-plan value for everyone.
 
+## Fixed in `fix/role-checks-and-landmine`
+
+- **Role checks no longer break for multisite super admins.** Both the tabs
+  filter and `enqueue_sortable_language_script()` tested
+  `in_array( 'administrator', wp_get_current_user()->roles )`. On multisite a
+  super admin usually holds no role on an individual subsite, so `roles` was
+  empty, the test failed, and the network administrator was served the
+  white-labelled, tab-hidden UI. Both now call
+  `bv_trp_user_sees_full_admin()`, which is `current_user_can( 'manage_options' )`.
+  Verified: subsite admin → full UI, editor → white-labelled, no caps →
+  white-labelled. Only super admins change behaviour.
+- **`bv_remove_translatepress_tabs()` no longer assumes `$tabs[0]`.** An empty
+  or non-zero-indexed array was an undefined-key warning and a broken settings
+  screen; it now returns the input unchanged.
+- **Removed `bv_rename_translatepress()`.** Dead — its `add_action` was
+  commented out — and it would have fatalled on PHP 8 if enabled, because
+  `property_exists( $submenu, … )` rejects an array argument with a
+  `TypeError`. Nothing referenced it and the tabs filter supersedes it.
+- **Guarded the external dependencies.** `bv_get_required_level_status()`
+  (voyage) is behind `function_exists()`, and `BV_TRANSLATION_LIMIT_PREMIUM` /
+  `BV_TRANSLATION_LIMIT_BASIC` behind `defined()` — an undefined constant is a
+  fatal on PHP 8, and this plugin is active on every subsite.
+- **The site-wide override handles an empty option.**
+  `get_option( 'bv_translation_limit', null ) ?? $limit` falls through for a
+  missing option but not for one saved as `''`, which is not null — the limit
+  silently became `''`. It now requires a numeric value.
+
 ## Known issues
 
-Recorded, not fixed — this initial commit is a faithful import of what is
-deployed.
-
-- **The plan limit is enforced only in the browser.** `$language_limit` is
-  shipped to JS via `wp_localize_script` and
+- **The plan limit is still enforced only in the browser.** `$language_limit`
+  is shipped to JS via `wp_localize_script` and
   `assets/js/trp-sortable-languages.js` merely hides `#trp-new-language` once
   the row count reaches it. Nothing validates the language count when
   TranslatePress settings are saved, so a basic-plan member can add unlimited
-  languages with devtools or a direct POST. This is a paywall bypass, not a
-  data disclosure, but it means the tier is advisory. Real enforcement needs a
-  server-side check on the `trp_settings` save.
-- **White-labelling is cosmetic for the same reason.** `hide_tabs()` hides the
-  tab strip with jQuery; the other settings tabs and their pages still exist
-  and remain reachable by URL. `bv_remove_translatepress_tabs()`
-  (`bv_translatepress_menu.php:62`) does filter the tab list server-side, which
-  is the real control — the JS is belt-and-braces on top of it.
-- **Role checks break for multisite super admins.** Both
-  `bv_remove_translatepress_tabs()` and `enqueue_sortable_language_script()`
-  test `in_array( 'administrator', wp_get_current_user()->roles )`. On
-  multisite a super admin often holds **no role on an individual subsite**, so
-  `roles` is empty, the test fails, and the network administrator gets the
-  white-labelled, tab-hidden UI. `current_user_can( 'manage_options' )` or
-  `is_super_admin()` is the correct test.
-- **`bv_remove_translatepress_tabs()` assumes `$tabs[0]` exists**
-  (`bv_translatepress_menu.php:67`). If the tabs array is ever empty or not
-  zero-indexed this is an undefined-key warning plus a broken settings screen.
-- **`bv_rename_translatepress()` would fatal on PHP 8 if enabled.**
-  `bv_translatepress_menu.php:74` calls
-  `property_exists( $submenu, 'options-general.php' )` where `$submenu` is an
-  **array**; on PHP 8 `property_exists()` rejects an array argument with a
-  `TypeError`. It should be `isset( $submenu['options-general.php'] )`. The
-  `add_action` on line 70 is commented out, so this is dormant — a landmine,
-  not a live bug.
-- **`get_option( 'bv_translation_limit', null ) ?? $language_limit`** falls
-  through correctly for a missing option, but an option saved as an empty
-  string is not null, so the limit silently becomes `''`.
+  languages with devtools or a direct POST.
+
+  **Deliberately not fixed here.** Adding server-side enforcement would
+  immediately affect any existing member whose saved language count already
+  exceeds their tier — their settings would start being rejected or silently
+  truncated on the next save. That needs a decision about what happens to
+  those members (grandfather, warn, truncate) and an audit of current usage,
+  not a quiet code change.
 - **Duplicated upstream code.** `class-extra-languages.php` and
   `partials/language-selector-pro.php` are forks of the add-on pinned to
-  version 1.0.1. The plugin advertises itself for updates from
-  translatepress.com via EDD, so an upstream update would overwrite the
-  beauVoyage changes. `bv_admin_widgets` carried a third copy of the same
-  files until it was cleaned up.
-- A commented-out `bv_translatepress_menu_page()` block sits in
+  version 1.0.1, and the plugin advertises itself for EDD updates from
+  translatepress.com — an upstream update would overwrite the beauVoyage
+  changes.
+- **`trp_el_run()` and `TRP_EL_PLUGIN_DIR` collide with
+  `tp-add-on-extra-languages`**, which must stay deactivated.
+- A commented-out `bv_translatepress_menu_page()` block remains in
   `class-extra-languages.php` (lines 22-59), superseded by the tabs filter.
 
 ## License

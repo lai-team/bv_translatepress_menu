@@ -59,28 +59,90 @@ function trp_el_run(){
 }
 add_action( 'plugins_loaded', 'trp_el_run', 0 );
 
-add_filter( 'trp_settings_tabs', 'bv_remove_translatepress_tabs' ,100);
-function bv_remove_translatepress_tabs($tabs){
-	$user_role = wp_get_current_user()->roles;
-	$whitelabel = !in_array( strtolower('administrator'), $user_role );
-	//$tabs = array($tabs[0]);
-	return $whitelabel?array($tabs[0]):$tabs;
+/**
+ * Whether the current user should see the unmodified TranslatePress UI.
+ *
+ * This was in_array( 'administrator', wp_get_current_user()->roles ). On
+ * multisite a super admin usually holds no role on an individual subsite, so
+ * roles is empty, the test failed, and the network administrator was shown
+ * the white-labelled, tab-hidden UI. manage_options is held by subsite
+ * administrators and super admins alike and still excludes editors and below,
+ * so the outcome is unchanged for everyone except super admins.
+ *
+ * @return bool
+ */
+function bv_trp_user_sees_full_admin() {
+	return current_user_can( 'manage_options' );
 }
 
-#add_action('admin_menu','bv_rename_translatepress',100);
-function bv_rename_translatepress(){
-	global $submenu;
-	//error_log(print_r('subMenu: '.json_encode($submenu),true));
-	if (property_exists($submenu, 'options-general.php') ){
-	    foreach($submenu['options-general.php'] as $key=>$value){
-		//error_log(print_r('subMenu: '.json_encode($value),true));
-		if($value[0]=='TranslatePress'){
-			$submenu['options-general.php'][$key][0]='Translation';
-			//error_log(print_r('subMenu: '.json_encode($submenu['options-general.php'][$key]),true));
-		}
-	    }
+/**
+ * How many translation languages this user's plan allows.
+ *
+ * @param int $user_id User id.
+ * @return int Language limit; 0 when it cannot be determined.
+ */
+function bv_trp_language_limit( $user_id ) {
+	// bv_get_required_level_status() lives in the voyage plugin and was called
+	// unguarded; the two constants come from wp-config.php, and an undefined
+	// constant is a fatal on PHP 8.
+	$premium = defined( 'BV_TRANSLATION_LIMIT_PREMIUM' ) ? (int) BV_TRANSLATION_LIMIT_PREMIUM : 0;
+	$basic   = defined( 'BV_TRANSLATION_LIMIT_BASIC' ) ? (int) BV_TRANSLATION_LIMIT_BASIC : 0;
+
+	$limit = $basic;
+
+	if ( function_exists( 'bv_get_required_level_status' ) ) {
+		$limit = bv_get_required_level_status( $user_id, get_user_meta( $user_id, 'private_plan', true ) )
+			? $premium
+			: $basic;
 	}
-//	error_log(print_r('Menu2: '.json_encode($submenu['options-general.php']),true));
+
+	// Site-wide override. Was get_option( 'bv_translation_limit', null ) ??
+	// $limit, which falls through correctly for a missing option but not for
+	// one saved as an empty string -- that is not null, so the limit silently
+	// became ''.
+	$override = get_option( 'bv_translation_limit', null );
+
+	if ( null !== $override && '' !== $override && is_numeric( $override ) ) {
+		$limit = (int) $override;
+	}
+
+	return $limit;
 }
+
+add_filter( 'trp_settings_tabs', 'bv_remove_translatepress_tabs' ,100);
+/**
+ * Show non-administrators only the first TranslatePress settings tab.
+ *
+ * This is the real white-label control; the JS that hides the tab strip is
+ * cosmetic on top of it.
+ *
+ * @param array $tabs Settings tabs.
+ * @return array
+ */
+function bv_remove_translatepress_tabs( $tabs ) {
+	if ( bv_trp_user_sees_full_admin() ) {
+		return $tabs;
+	}
+
+	// Was array( $tabs[0] ) unconditionally: an undefined-key warning and a
+	// broken settings screen if the array were ever empty or not zero-indexed.
+	if ( ! is_array( $tabs ) || ! isset( $tabs[0] ) ) {
+		return $tabs;
+	}
+
+	return array( $tabs[0] );
+}
+
+/*
+ * bv_rename_translatepress() lived here, renaming the "TranslatePress"
+ * submenu entry to "Translation". Its add_action was commented out, so it
+ * never ran -- and it would have fatalled on PHP 8 if enabled, because it
+ * called property_exists( $submenu, 'options-general.php' ) where $submenu is
+ * an array, and property_exists() rejects an array argument with a TypeError.
+ * The correct test is isset( $submenu['options-general.php'] ).
+ *
+ * Removed rather than repaired: nothing referenced it, and the rename it
+ * attempted is superseded by the tabs filter above.
+ */
 
 
